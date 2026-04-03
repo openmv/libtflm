@@ -61,7 +61,7 @@ jobs:
       id: cache
       with:
         path: ~/cache/gcc
-        key: 'arm-gnu-toolchain-13.2.rel1'
+        key: 'arm-gnu-toolchain-14.3.rel1'
 
     - name: '🛠 Install toolchain '
       if: steps.cache.outputs.cache-hit != 'true'
