@@ -116,7 +116,7 @@ jobs:
         if-no-files-found: error
 
   push-artifacts:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     needs: [build-tflm]
     if: github.event_name == 'push'
     permissions:
