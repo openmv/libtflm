@@ -9,6 +9,9 @@
 # Install ARM GCC.
 ########################################################################################
 TFLM_REPO_PATH=tflite-micro
+ETHOSU_DRIVER_URL="https://gitlab.arm.com/artificial-intelligence/ethos-u/ethos-u-core-driver.git"
+ETHOSU_DRIVER_TAG=26.08
+ETHOSU_DRIVER_PATH=${TFLM_REPO_PATH}/tensorflow/lite/micro/tools/make/downloads/ethos_u_core_driver
 TOOLCHAIN_PATH=${HOME}/cache/gcc
 export PATH=${TOOLCHAIN_PATH}/bin:${PATH}
 TOOLCHAIN_URL="https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi.tar.xz"
@@ -24,6 +27,20 @@ ci_install_arm_gcc() {
 ########################################################################################
 ci_update_submodules() {
     git submodule update --init --depth=1 --no-single-branch
+}
+
+# Clone the Ethos-U core driver into TFLM's download path, which skips its download.
+########################################################################################
+ci_clone_ethosu_driver() {
+    git clone --depth=1 --branch ${ETHOSU_DRIVER_TAG} ${ETHOSU_DRIVER_URL} ${ETHOSU_DRIVER_PATH}
+}
+
+# Apply TFLM patches.
+########################################################################################
+ci_apply_patches() {
+    for patch in patches/*.patch; do
+        git -C ${TFLM_REPO_PATH} apply -v ../${patch}
+    done
 }
 
 # Build Targets.
