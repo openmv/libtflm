@@ -57,22 +57,29 @@ ci_build_target() {
     # building the CMSIS-NN sources into the library (only used to link TFLM's own
     # binaries). The CMSIS and CMSIS-NN paths must be set with it, and are set to
     # the default download paths so the headers are still downloaded and used.
-    CMSIS_NN_ARGS=""
+    EXTERNAL_LIBS_ARGS=""
     if [ "${TARGET_KERNEL}" == "cmsis_nn" ]; then
-        CMSIS_NN_ARGS="CMSIS_NN_LIBS=none CMSIS_PATH=\$(DOWNLOADS_DIR)/cmsis CMSIS_NN_PATH=\$(DOWNLOADS_DIR)/cmsis_nn"
+        EXTERNAL_LIBS_ARGS="CMSIS_NN_LIBS=none CMSIS_PATH=\$(DOWNLOADS_DIR)/cmsis CMSIS_NN_PATH=\$(DOWNLOADS_DIR)/cmsis_nn"
+    fi
+
+    # The Ethos-U core driver is also provided by the firmware. Setting ETHOSU_DRIVER_LIBS
+    # stops TFLM from building the driver sources into the library (the headers are
+    # still used).
+    if [ "${TARGET_COPROC}" == "ethos_u" ]; then
+        EXTERNAL_LIBS_ARGS="${EXTERNAL_LIBS_ARGS} ETHOSU_DRIVER_LIBS=none"
     fi
 
     pushd ${TFLM_REPO_PATH}
 echo "make -j$(nproc) -f tensorflow/lite/micro/tools/make/Makefile \
 TARGET=cortex_m_generic TARGET_ARCH=${TARGET_ARCH} CO_PROCESSOR=${TARGET_COPROC} \
-${TARGET_ARGS} ${CMSIS_NN_ARGS} OPTIMIZED_KERNEL_DIR=${TARGET_KERNEL} CORE_OPTIMIZATION_LEVEL=-O2 \
+${TARGET_ARGS} ${EXTERNAL_LIBS_ARGS} OPTIMIZED_KERNEL_DIR=${TARGET_KERNEL} CORE_OPTIMIZATION_LEVEL=-O2 \
 KERNEL_OPTIMIZATION_LEVEL=-O2 THIRD_PARTY_KERNEL_OPTIMIZATION_LEVEL=-O2 \
 TARGET_TOOLCHAIN_ROOT=${TOOLCHAIN_PATH}/bin/ TARGET_TOOLCHAIN_PREFIX=arm-none-eabi- \
 BUILD_TYPE=${TARGET_BUILD} MICROLITE_LIB_NAME=libtflm.a microlite"
     
     make -j$(nproc) -f tensorflow/lite/micro/tools/make/Makefile \
          TARGET=cortex_m_generic TARGET_ARCH=${TARGET_ARCH} CO_PROCESSOR=${TARGET_COPROC} \
-         ${TARGET_ARGS} ${CMSIS_NN_ARGS} OPTIMIZED_KERNEL_DIR=${TARGET_KERNEL} CORE_OPTIMIZATION_LEVEL=-O2 \
+         ${TARGET_ARGS} ${EXTERNAL_LIBS_ARGS} OPTIMIZED_KERNEL_DIR=${TARGET_KERNEL} CORE_OPTIMIZATION_LEVEL=-O2 \
          KERNEL_OPTIMIZATION_LEVEL=-O2 THIRD_PARTY_KERNEL_OPTIMIZATION_LEVEL=-O2 \
          TARGET_TOOLCHAIN_ROOT=${TOOLCHAIN_PATH}/bin/ TARGET_TOOLCHAIN_PREFIX=arm-none-eabi- \
          BUILD_TYPE=${TARGET_BUILD} MICROLITE_LIB_NAME=libtflm.a microlite
@@ -95,6 +102,7 @@ ci_build_headers() {
     popd
     mv ${TFLM_REPO_PATH}/headers ${TARGET_NAME}-headers
 
-    # CMSIS-NN is provided by the firmware.
+    # CMSIS-NN and the Ethos-U core driver are provided by the firmware.
     rm -rf ${TARGET_NAME}-headers/third_party/cmsis_nn
+    rm -rf ${TARGET_NAME}-headers/third_party/ethos_u_core_driver
 }
