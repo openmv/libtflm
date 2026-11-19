@@ -154,6 +154,10 @@ jobs:
         rsync -av --delete --include='*/' --include='LICENSE' --include='COPYING' --include='*.h' --exclude='*' --delete *-headers/ include
         rm -fr *-headers
 
+    - name: 'Update license'
+      run: |
+        cp include/LICENSE lib/LICENSE
+
     - name: '🔀 Create Pull Request'
       uses: peter-evans/create-pull-request@v5
       with:
