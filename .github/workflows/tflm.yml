@@ -7,6 +7,8 @@ on:
     paths:
       - '.github/workflows/*.yml'
       - '.github/workflows/*.json'
+      - 'patches/**'
+      - 'tools/ci.sh'
       - '!**/README.md'
 
   pull_request:
@@ -20,6 +22,8 @@ on:
     paths:
       - '.github/workflows/*.yml'
       - '.github/workflows/*.json'
+      - 'patches/**'
+      - 'tools/ci.sh'
       - '!**/README.md'
 
 jobs:
@@ -33,7 +37,7 @@ jobs:
           - {name: cortex-m4+fp, arch: cortex-m4+fp, kernel: cmsis_nn, coproc: '', args: ''}
           - {name: cortex-m7+fp, arch: cortex-m7+fp, kernel: cmsis_nn, coproc: '', args: ''}
           - {name: cortex-m55, arch: cortex-m55, kernel: cmsis_nn, coproc: '', args: ''}
-          - {name: cortex-m55-u55, arch: cortex-m55, kernel: ethos_u, coproc: ethos_u, args: "ETHOSU_ARCH=u55"}
+          - {name: cortex-m55-ethosu, arch: cortex-m55, kernel: ethos_u, coproc: ethos_u, args: "ETHOSU_ARCH=multi"}
         build: [release, release_with_logs]
       fail-fast: true
 
@@ -49,12 +53,13 @@ jobs:
         submodules: false
         path: tflite-micro
         repository: tensorflow/tflite-micro
-        ref: a57349f0bc3bc3ded105238fe2f14c36888d42b0
+        ref: aab6e2fdb1b22e424395939462d30ac1bb5d950c
 
-    - name: '🔧 Patch TFLM ethos-u URL'
-      run: |
-        sed -i 's|https://review.mlplatform.org/ml/ethos-u/ethos-u-core-driver|https://gitlab.arm.com/artificial-intelligence/ethos-u/ethos-u-core-driver|g' \
-          tflite-micro/tensorflow/lite/micro/tools/make/ethos_u_core_driver_download.sh
+    - name: '⏳ Checkout Ethos-U core driver'
+      run: source tools/ci.sh && ci_clone_ethosu_driver
+
+    - name: '🔧 Patch TFLM'
+      run: source tools/ci.sh && ci_apply_patches
 
     - name: '♻ Caching dependencies'
       uses: actions/cache@v4
@@ -128,6 +133,9 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: false
+
+    - name: '🗑 Remove old libraries'
+      run: rm -f lib/libtflm-*.a
 
     - name: '⬇ Download artifacts'
       uses: actions/download-artifact@v4
