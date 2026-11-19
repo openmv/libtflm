@@ -1,4 +1,4 @@
-/* Copyright 2020 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2024 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -36,7 +36,12 @@ class KernelRunner {
   KernelRunner(const TFLMRegistration& registration, TfLiteTensor* tensors,
                int tensors_size, TfLiteIntArray* inputs,
                TfLiteIntArray* outputs, const void* builtin_data,
-               TfLiteIntArray* intermediates = nullptr);
+               TfLiteIntArray* intermediates = nullptr
+#ifdef USE_TFLM_COMPRESSION
+               ,
+               const CompressedTensorList* compressed_tensors = nullptr
+#endif  // USE_TFLM_COMPRESSION
+  );
 
   // Calls init and prepare on the kernel (i.e. TFLMRegistration) struct.
   // Any exceptions will be DebugLog'd and returned as a status code.
@@ -61,6 +66,9 @@ class KernelRunner {
   // Returns a pointer to the internal MockMicroGraph which KernelRunner uses
   // to stub out MicroGraph methods and track invocations on each subgraph.
   MockMicroGraph* GetMockGraph() { return &mock_micro_graph_; }
+
+  // Returns a pointer to the internal FakeMicroContext.
+  FakeMicroContext* GetFakeMicroContext() { return &fake_micro_context_; }
 
   // Returns true if all temp buffer in tests are deallocated.
   // TODO(b/209453859): move this function to private after deallocation checks

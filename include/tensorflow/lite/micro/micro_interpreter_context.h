@@ -1,4 +1,4 @@
-/* Copyright 2021 The TensorFlow Authors. All Rights Reserved.
+/* Copyright 2024 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -15,6 +15,9 @@ limitations under the License.
 
 #ifndef TENSORFLOW_LITE_MICRO_MICRO_INTERPRETER_CONTEXT_H_
 #define TENSORFLOW_LITE_MICRO_MICRO_INTERPRETER_CONTEXT_H_
+
+#include <cstddef>
+#include <initializer_list>
 
 #include "tensorflow/lite/c/common.h"
 #include "tensorflow/lite/micro/micro_allocator.h"
@@ -106,6 +109,56 @@ class MicroInterpreterContext : public MicroContext {
   // housekeeping in MicroInterpreterContext.
   void SetScratchBufferHandles(ScratchBufferHandle* scratch_buffer_handles);
 
+#ifdef USE_TFLM_COMPRESSION
+
+  // Available during Prepare & Eval. Returns false if tensor is not
+  // compressed.
+  bool IsTensorCompressed(const TfLiteNode* node, int tensor_idx) override;
+
+  // Only available during Prepare. The kernel is responsible for storing the
+  // scratch buffer handle.
+  int AllocateDecompressionScratchBuffer(const TfLiteNode* node,
+                                         int tensor_idx) override;
+
+  // Available during Prepare & Eval. Returns nullptr if tensor is not
+  // compressed.
+  const CompressionTensorData* GetTensorCompressionData(
+      const TfLiteNode* node, int tensor_idx) override;
+
+  // Only available during Prepare & Eval. Returns nullptr on failure, otherwise
+  // returns a pointer to the buffer.
+  void* DecompressTensorToBuffer(const TfLiteEvalTensor& tensor,
+                                 const CompressionTensorData& compression_data,
+                                 void* buffer) override;
+
+#endif  // USE_TFLM_COMPRESSION
+
+  // Set the alternate decompression memory regions.
+  // Can only be called during the MicroInterpreter kInit state.
+  TfLiteStatus SetDecompressionMemory(const AlternateMemoryRegion* regions,
+                                      size_t count) override;
+
+  // Return a pointer to memory that can be used for decompression.
+  // The pointer will be aligned to the <alignment> value.
+  // Return nullptr if the requested size is not available.
+  // Can be called during kPrepare state.
+  void* AllocateDecompressionMemory(size_t bytes, size_t alignment) override;
+
+  // Set the alternate MicroProfilerInterface.
+  // This can be used to profile subsystems simultaneously with the profiling
+  // of kernels during the Eval phase.  See (b/379584353).
+  // The alternate MicroProfilerInterface is currently used by the tensor
+  // decompression subsystem.
+  TfLiteStatus SetAlternateProfiler(
+      MicroProfilerInterface* alt_profiler) override;
+
+  // Get the alternate MicroProfilerInterface.
+  // This can be used to profile subsystems simultaneously with the profiling
+  // of kernels during the Eval phase.  See (b/379584353).
+  // The alternate MicroProfilerInterface is currently used by the tensor
+  // decompression subsystem.
+  MicroProfilerInterface* GetAlternateProfiler() const override;
+
  private:
   MicroAllocator& allocator_;
   MicroInterpreterGraph& graph_;
@@ -114,6 +167,7 @@ class MicroInterpreterContext : public MicroContext {
 
   ScratchBufferHandle* scratch_buffer_handles_ = nullptr;
   void* external_context_payload_ = nullptr;
+  MicroProfilerInterface* alt_profiler_ = nullptr;
 
   TF_LITE_REMOVE_VIRTUAL_DELETE
 };

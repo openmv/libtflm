@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 // WARNING: Users of TensorFlow Lite should not include this file directly, but
-// should instead include "third_party/tensorflow/lite/c/common.h".
+// should instead include "tensorflow/lite/c/common.h".
 // Only the TensorFlow Lite implementation itself should include this file
 // directly.
 
@@ -47,7 +47,7 @@ limitations under the License.
 // NOLINTEND(whitespace/line_length)
 // clang-format on
 
-// IWYU pragma: private, include "third_party/tensorflow/lite/c/common.h"
+// IWYU pragma: private, include "tensorflow/lite/c/common.h"
 
 #ifndef TENSORFLOW_LITE_CORE_C_COMMON_H_
 #define TENSORFLOW_LITE_CORE_C_COMMON_H_
@@ -56,6 +56,7 @@ limitations under the License.
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "tensorflow/lite/core/c/c_api_types.h"  // IWYU pragma: export
 
@@ -80,7 +81,9 @@ typedef enum TfLiteExternalContextType {
   kTfLiteGemmLowpContext = 1,    /// include gemm_support.h to use.
   kTfLiteEdgeTpuContext = 2,     /// Placeholder for Edge TPU support.
   kTfLiteCpuBackendContext = 3,  /// include cpu_backend_context.h to use.
-  kTfLiteMaxExternalContexts = 4
+  kTfLiteLiteRtBufferContext =
+      4,  /// include external_litert_buffer_context.h to use.
+  kTfLiteMaxExternalContexts = 5
 } TfLiteExternalContextType;
 
 // Forward declare so dependent structs and methods can reference these types
@@ -100,7 +103,9 @@ typedef struct TfLiteExternalContext {
   TfLiteStatus (*Refresh)(struct TfLiteContext* context);
 } TfLiteExternalContext;
 
+// LINT.IfChange(optional_tensor)
 #define kTfLiteOptionalTensor (-1)
+// LINT.ThenChange(//tensorflow/compiler/mlir/lite/flatbuffer_export.cc:optional_tensor)
 
 /// Fixed size list of integers. Used for dimensions and inputs/outputs tensor
 /// indices
@@ -273,13 +278,45 @@ void TfLiteFloatArrayFree(TfLiteFloatArray* a);
     }                                                                        \
   } while (0)
 
-#define TF_LITE_ENSURE_OK(context, status) \
-  do {                                     \
-    const TfLiteStatus s = (status);       \
-    if ((s) != kTfLiteOk) {                \
-      return s;                            \
-    }                                      \
+#ifndef TF_LITE_STRIP_ERROR_STRINGS
+#define TF_LITE_VAR_ARG_HEAD(FIRST, ...) FIRST
+#define TF_LITE_STRINGIFY_HELPER(x) #x
+#define TF_LITE_STRINGIFY(x) TF_LITE_STRINGIFY_HELPER(x)
+// Checks that `status` evaluates to `kTfLiteOk`.
+//
+// Can take a printf style log message and its parameters after the status. The
+// message will be printed using `TF_LITE_KERNEL_LOG` in case of error.
+#define TF_LITE_ENSURE_OK(context, status, ...)                              \
+  do {                                                                       \
+    const TfLiteStatus s = (status);                                         \
+    if (s != kTfLiteOk) {                                                    \
+      if (sizeof(TF_LITE_VAR_ARG_HEAD("" __VA_ARGS__)) > sizeof("")) {       \
+        TF_LITE_MAYBE_KERNEL_LOG((context), __FILE__ ":" TF_LITE_STRINGIFY(  \
+                                                __LINE__) ": " __VA_ARGS__); \
+      }                                                                      \
+      return s;                                                              \
+    }                                                                        \
   } while (0)
+#else
+#define TF_LITE_ENSURE_OK(context, status, ...) \
+  do {                                          \
+    const TfLiteStatus s = (status);            \
+    if ((s) != kTfLiteOk) {                     \
+      return s;                                 \
+    }                                           \
+  } while (0)
+#endif
+
+// `std::unreachable` not available until CC23.
+#ifdef __GNUC__  // GCC, Clang, ICC
+
+#define TFL_UNREACHABLE() (__builtin_unreachable())
+
+#elif defined(_MSC_VER)  // MSVC
+
+#define TFL_UNREACHABLE() (__assume(false))
+
+#endif
 
 /// Single-precision complex data type compatible with the C99 definition.
 typedef struct TfLiteComplex64 {
@@ -307,12 +344,20 @@ typedef struct TfLiteBFloat16 {
 const char* TfLiteTypeGetName(TfLiteType type);
 
 /// SupportedQuantizationTypes.
+#ifdef __cplusplus
+typedef enum TfLiteQuantizationType : int {
+#else
 typedef enum TfLiteQuantizationType {
+#endif
   /// No quantization.
   kTfLiteNoQuantization = 0,
   /// Affine quantization (with support for per-channel quantization).
   /// Corresponds to TfLiteAffineQuantization.
   kTfLiteAffineQuantization = 1,
+  /// Blockwise quantization.
+  kTfLiteBlockwiseQuantization = 2,
+  /// Multi-axis quantization.
+  kTfLiteMultiAxisQuantization = 3,
 } TfLiteQuantizationType;
 
 /// Structure specifying the quantization used by the tensor, if-any.
@@ -338,6 +383,30 @@ typedef struct TfLiteAffineQuantization {
   int32_t quantized_dimension;
 } TfLiteAffineQuantization;
 
+/// Parameters for blockwise quantization across the output channels dimension.
+/// For a particular value in quantized_dimension, quantized values can be
+/// converted back to float using:
+///     `real_value = scale * (quantized_value - zero_point)`
+typedef struct TfLiteBlockwiseQuantization {
+  // Index of the tensor containing the scales.
+  int32_t scale;
+  // Index of the tensor containing the zero points.
+  int32_t zero_point;
+  // Quantization blocksize.
+  int32_t blocksize;
+  int32_t quantized_dimension;
+} TfLiteBlockwiseQuantization;
+
+/// Parameters for multi-axis quantization. The scales and zero_points fields
+/// refer to tensor indices in the same subgraph. If zero_points is -1, zero
+/// point is assumed to be 0. For per-channel quantization, blocksize is 0.
+typedef struct TfLiteMultiAxisQuantization {
+  int32_t scales;
+  int32_t zero_points;
+  int32_t blocksize;
+  TfLiteIntArray* quantized_dimensions;
+} TfLiteMultiAxisQuantization;
+
 /// A union of pointers that points to memory for a given tensor.
 ///
 /// Do not access these members directly, if possible, use
@@ -350,6 +419,7 @@ typedef union TfLitePtrUnion {
   uint64_t* u64;
   float* f;
   TfLiteFloat16* f16;
+  TfLiteBFloat16* bf16;
   double* f64;
   char* raw;
   const char* raw_const;
@@ -380,6 +450,9 @@ typedef union TfLitePtrUnion {
 ///  * `kTfLiteVariantObject`: Allocation is an arbitrary type-erased C++
 ///  object.
 ///        Allocation and deallocation are done through `new` and `delete`.
+///  * `kTfLiteNonCpu`: Tensor buffer is in non-CPU memory, such as AHWB, GPU
+///        memory. This tensor is not accessed by the CPU.
+///        This is only used by LiteRt API.
 typedef enum TfLiteAllocationType {
   kTfLiteMemNone = 0,
   kTfLiteMmapRo,
@@ -389,6 +462,7 @@ typedef enum TfLiteAllocationType {
   kTfLitePersistentRo,
   kTfLiteCustom,
   kTfLiteVariantObject,
+  kTfLiteNonCpu,
 } TfLiteAllocationType;
 
 /// Memory allocation strategies.
@@ -428,12 +502,6 @@ typedef int TfLiteBufferHandle;
 enum {
   kTfLiteNullBufferHandle = -1,
 };
-
-/// Storage format of each dimension in a sparse tensor.
-typedef enum TfLiteDimensionType {
-  kTfLiteDimDense = 0,
-  kTfLiteDimSparseCSR,
-} TfLiteDimensionType;
 
 /// Metadata to encode each dimension in a sparse tensor.
 typedef struct TfLiteDimensionMetadata {
@@ -543,8 +611,10 @@ typedef struct TfLiteTensor {
   /// only populated when unknown dimensions exist in a read-write tensor (i.e.
   /// an input or output tensor). (e.g.  `dims` contains [1, 1, 1, 3] and
   /// `dims_signature` contains [1, -1, -1, 3]).  If no unknown dimensions exist
-  /// then `dims_signature` is either null, or set to an empty array.  Note that
-  /// this field only exists when TF_LITE_STATIC_MEMORY is not defined.
+  /// then `dims_signature` is either null, or set to an empty array.  Use
+  /// `TfLiteTensorGetDimsSignature` to get `dims_signature` if non-empty or
+  /// otherwise fallback to `dims`.  Note that this field only exists when
+  /// TF_LITE_STATIC_MEMORY is not defined.
   const TfLiteIntArray* dims_signature;
 } TfLiteTensor;
 
@@ -724,6 +794,9 @@ void TfLiteTensorReset(TfLiteType type, const char* name, TfLiteIntArray* dims,
 /// quantization, sparsity, ...
 TfLiteStatus TfLiteTensorCopy(const TfLiteTensor* src, TfLiteTensor* dst);
 
+/// Returns a tensor holding a deep copy of src.
+TfLiteTensor TfLiteTensorClone(TfLiteTensor src);
+
 /// Change the size of the memory block owned by `tensor` to `num_bytes`.
 /// Tensors with allocation types other than `kTfLiteDynamic` will be ignored
 /// and a `kTfLiteOk` will be returned. `tensor`'s internal data buffer will be
@@ -743,6 +816,13 @@ TfLiteStatus TfLiteTensorResizeMaybeCopy(size_t num_bytes, TfLiteTensor* tensor,
 /// start of the region up to the minimum of the old and new sizes. In the case
 /// of NULL tensor, or an error allocating new memory, returns `kTfLiteError`.
 TfLiteStatus TfLiteTensorRealloc(size_t num_bytes, TfLiteTensor* tensor);
+
+/// Returns the shape of the tensor, with -1 for any unknown dimension sizes.
+/// If any dimension is unknown, this is the same as `t->dims_signature`.
+/// If all dimensions are known, this is the same as `t->dims`.
+/// (`dims_signature` is NULL or empty if all dimensions are known.)
+const TfLiteIntArray* TfLiteTensorGetDimsSignature(const TfLiteTensor* t);
+
 #endif  // TF_LITE_STATIC_MEMORY
 
 /// WARNING: This is an experimental interface that is subject to change.
@@ -1014,6 +1094,13 @@ typedef struct TfLiteContext {
   /// WARNING: This is an experimental interface that is subject to change.
   TfLiteStatus (*ReleaseSubgraphContext)(struct TfLiteContext* context,
                                          int subgraph_index);
+#if defined(_WIN32)
+  /// Create a array of a given `size` (uninitialized entries).
+  TfLiteIntArray* (*TfLiteIntArrayCreate)(int size);  // NOLINT
+
+  /// Free memory of array `a`.
+  void (*TfLiteIntArrayFree)(TfLiteIntArray* a);  // NOLINT
+#endif                                            // defined(_WIN32)
 } TfLiteContext;
 
 /// `TfLiteOperator` is an external version of `TfLiteRegistration`
@@ -1115,6 +1202,11 @@ typedef struct TfLiteRegistration {
   /// NOTE: if the data is already in the desired format, simply implement this
   /// function to return `nullptr` and implement the free function to be a
   /// no-op.
+  ///
+  /// NOTE: For a Delegate kernel, returns `TfLiteKernelInitFailed()` if it
+  /// fails on the initialization. This eventually causes user's API call to
+  /// InterpreterBuilder::operator() or Interpreter::ModifyGraphWithDelegate()
+  /// to return an error.
   void* (*init)(TfLiteContext* context, const char* buffer, size_t length);
 
   /// The pointer `buffer` is the data previously returned by an init
@@ -1301,7 +1393,15 @@ typedef enum TfLiteDelegateFlags {
   /// operator information using `Profiler::EventType::OPERATOR_INVOKE_EVENT`
   /// and the results will appear in the operator-wise Profiling section and not
   /// in the Delegate internal section.
-  kTfLiteDelegateFlagsPerOperatorProfiling = 4
+  kTfLiteDelegateFlagsPerOperatorProfiling = 4,
+
+  // This flag can be used by callers to hint that the delegate is likely to
+  // delegate the entire graph to a single delegate so certain allocations can
+  // be skipped.
+  // This is an ADVANCED feature and should only be used if the caller has
+  // prior knowledge that the delegate will fully delegate all subgraphs
+  // to a single delegate.
+  kTfLiteDelegateFlagsHintFullyDelegatedToSingleDelegate = 8,
 } TfLiteDelegateFlags;
 
 /// WARNING: This is an experimental interface that is subject to change.
@@ -1453,6 +1553,10 @@ TfLiteRunStep TfLiteTensorGetDataKnownStep(const TfLiteTensor* t);
 /// operations.
 TfLiteRunStep TfLiteTensorGetShapeKnownStep(const TfLiteTensor* t);
 
+/// Returns a sentinel value to be used as the user_data field of a TfLiteNode
+/// when the kernel initialization fails.
+void* TfLiteKernelInitFailed();
+
 /** @} */
 // Ends `\addtogroup`, it's important for the doc generator that this doesn't
 // include the CC code below.
@@ -1587,6 +1691,9 @@ TfLiteStatus TfLiteTensorVariantRealloc(TfLiteTensor* t,
   t->allocation_type = kTfLiteVariantObject;
   return kTfLiteOk;
 }
+
+// Returns a copy of the quantization parameters of the tensor.
+TfLiteQuantization TfLiteQuantizationClone(const TfLiteQuantization& src);
 
 #endif  // __cplusplus
 #endif  // TENSORFLOW_LITE_CORE_C_COMMON_H_
